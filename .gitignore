@@ -1,0 +1,11 @@
+# Build output
+build/
+*.app
+
+# macOS
+.DS_Store
+
+# Whisper models (downloaded on first launch, ~650MB)
+*.bin
+*.mlmodelc
+*.mlmodelc.zip
