@@ -15,7 +15,7 @@ let MODEL_COREML_ZIP_URL = URL(string: "https://huggingface.co/ggerganov/whisper
 let MODEL_TOTAL_BYTES: Int64 = 651_000_000   // ~ bin (487MB) + coreml (163MB), for progress
 
 let SUPPORTED: Set<String> = ["m4a","mp3","wav","aiff","aif","caf","flac","mp4","mov",
-                              "m4v","aac","3gp","amr","au"]
+                              "m4v","aac","3gp","amr","au","ogg","oga","opus","webm"]
 
 // MARK: - Paths
 
@@ -130,7 +130,26 @@ extension ModelManager: URLSessionDownloadDelegate {
 // MARK: - Audio conversion (AVFoundation → 16kHz mono WAV)
 
 enum AudioConvert {
+    // Formats AVFoundation / Core Audio cannot decode on macOS; these need ffmpeg.
+    static let needsExternalDecoder: Set<String> = ["ogg","oga","opus","webm"]
+
     static func toWav(_ input: URL) throws -> URL {
+        // Ogg/Opus/WebM aren't decodable by AVFoundation — go straight to ffmpeg.
+        if needsExternalDecoder.contains(input.pathExtension.lowercased()) {
+            return try ffmpegToWav(input)
+        }
+        do {
+            return try avfToWav(input)
+        } catch {
+            // AVFoundation failed (unusual container/codec) — try ffmpeg as a fallback.
+            if ffmpegPath() != nil { return try ffmpegToWav(input) }
+            throw error
+        }
+    }
+
+    // MARK: AVFoundation path (fast, no external dependency)
+
+    static func avfToWav(_ input: URL) throws -> URL {
         let asset = AVURLAsset(url: input)
         guard let track = asset.tracks(withMediaType: .audio).first else {
             throw NSError(domain: "Transcribe", code: 1,
@@ -175,6 +194,48 @@ enum AudioConvert {
         let dst = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".wav")
         try wav.write(to: dst)
+        return dst
+    }
+
+    // MARK: ffmpeg path (for Ogg Vorbis / Opus / WebM that AVFoundation can't decode)
+
+    /// Locate an ffmpeg binary: common Homebrew/system paths, then `which`.
+    static func ffmpegPath() -> String? {
+        for c in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]
+        where FileManager.default.isExecutableFile(atPath: c) { return c }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = ["which", "ffmpeg"]
+        let out = Pipe(); p.standardOutput = out; p.standardError = Pipe()
+        guard (try? p.run()) != nil else { return nil }
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { return nil }
+        let path = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let path, !path.isEmpty, FileManager.default.isExecutableFile(atPath: path) { return path }
+        return nil
+    }
+
+    static func ffmpegToWav(_ input: URL) throws -> URL {
+        guard let ffmpeg = ffmpegPath() else {
+            throw NSError(domain: "Transcribe", code: 4, userInfo: [NSLocalizedDescriptionKey:
+                "This format (\(input.pathExtension.lowercased())) needs ffmpeg, which isn't installed.\nInstall it with: brew install ffmpeg"])
+        }
+        let dst = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".wav")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: ffmpeg)
+        // Decode → 16 kHz mono signed-16 PCM WAV, matching the AVFoundation output.
+        p.arguments = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+                       "-i", input.path, "-ac", "1", "-ar", "16000",
+                       "-c:a", "pcm_s16le", dst.path]
+        let errPipe = Pipe(); p.standardError = errPipe; p.standardOutput = Pipe()
+        try p.run(); p.waitUntilExit()
+        guard p.terminationStatus == 0, FileManager.default.fileExists(atPath: dst.path) else {
+            let e = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            throw NSError(domain: "Transcribe", code: 5, userInfo: [NSLocalizedDescriptionKey:
+                "ffmpeg could not decode this file.\n\(e.trimmingCharacters(in: .whitespacesAndNewlines))"])
+        }
         return dst
     }
 }

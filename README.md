@@ -10,7 +10,15 @@ Built with SwiftUI and [whisper.cpp](https://github.com/ggerganov/whisper.cpp) (
 - Bundles whisper.cpp with CoreML + Metal acceleration
 - Converts audio via AVFoundation (no ffmpeg required)
 - Downloads the Whisper model automatically on first launch (~650MB, cached)
-- Supports `m4a, mp3, wav, aiff, caf, flac, mp4, mov, m4v, aac, 3gp, amr, au`
+- Supports `m4a, mp3, wav, aiff, caf, flac, mp4, mov, m4v, aac, 3gp, amr, au, ogg, oga, opus, webm`
+
+### A note on Ogg / Opus / WebM
+
+Most formats are decoded natively via AVFoundation with no dependencies. Ogg
+Vorbis, Opus and WebM can't be decoded by macOS Core Audio, so those files are
+transcoded with [`ffmpeg`](https://ffmpeg.org) if it's installed (`brew install
+ffmpeg`). If ffmpeg is missing, the app shows a clear message for those formats
+only — every other format keeps working without it.
 
 ## Requirements
 
