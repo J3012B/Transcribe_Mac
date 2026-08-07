@@ -14,6 +14,13 @@ let MODEL_BIN_URL  = URL(string: "https://huggingface.co/ggerganov/whisper.cpp/r
 let MODEL_COREML_ZIP_URL = URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-encoder.mlmodelc.zip")!
 let MODEL_TOTAL_BYTES: Int64 = 651_000_000   // ~ bin (487MB) + coreml (163MB), for progress
 
+// Helper tools for the optional "transcribe from a URL" feature. These are NOT
+// bundled — they're downloaded on demand the first time the user opens that
+// feature, so the app stays small for people who never touch it.
+let YTDLP_URL  = URL(string: "https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp_macos")!
+let FFMPEG_URL = URL(string: "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-darwin-arm64.gz")!
+let DENO_URL   = URL(string: "https://github.com/denoland/deno/releases/download/v2.9.5/deno-aarch64-apple-darwin.zip")!
+
 let SUPPORTED: Set<String> = ["m4a","mp3","wav","aiff","aif","caf","flac","mp4","mov",
                               "m4v","aac","3gp","amr","au","ogg","oga","opus","webm"]
 
@@ -37,6 +44,16 @@ enum Paths {
     // Bundled binary: Contents/Resources/whisper/bin/whisper-cli
     static var whisperBin: URL {
         Bundle.main.resourceURL!.appendingPathComponent("whisper/bin/whisper-cli")
+    }
+    // Helper tools (yt-dlp, deno, ffmpeg) downloaded on demand for the URL feature.
+    static var toolsDir: URL {
+        let d = support.appendingPathComponent("tools", isDirectory: true)
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+    static func downloadedTool(_ name: String) -> String? {
+        let p = toolsDir.appendingPathComponent(name).path
+        return FileManager.default.isExecutableFile(atPath: p) ? p : nil
     }
 }
 
@@ -199,8 +216,9 @@ enum AudioConvert {
 
     // MARK: ffmpeg path (for Ogg Vorbis / Opus / WebM that AVFoundation can't decode)
 
-    /// Locate an ffmpeg binary: common Homebrew/system paths, then `which`.
+    /// Locate an ffmpeg binary: the on-demand download, then Homebrew/system paths, then `which`.
     static func ffmpegPath() -> String? {
+        if let dl = Paths.downloadedTool("ffmpeg") { return dl }
         for c in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]
         where FileManager.default.isExecutableFile(atPath: c) { return c }
         let p = Process()
@@ -237,6 +255,249 @@ enum AudioConvert {
                 "ffmpeg could not decode this file.\n\(e.trimmingCharacters(in: .whitespacesAndNewlines))"])
         }
         return dst
+    }
+}
+
+// MARK: - YouTube (audio download via yt-dlp)
+
+enum YouTube {
+    /// Locate a yt-dlp binary: the on-demand download, then Homebrew/system paths, then `which`.
+    static func ytDlpPath() -> String? { toolPath("yt-dlp") }
+
+    /// Locate a deno binary (the JS runtime yt-dlp needs for YouTube).
+    static func denoPath() -> String? { toolPath("deno") }
+
+    /// Shared lookup: downloaded copy first, then common install dirs, then `which`.
+    static func toolPath(_ name: String) -> String? {
+        if let dl = Paths.downloadedTool(name) { return dl }
+        for c in ["/opt/homebrew/bin/\(name)", "/usr/local/bin/\(name)", "/usr/bin/\(name)"]
+        where FileManager.default.isExecutableFile(atPath: c) { return c }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = ["which", name]
+        let out = Pipe(); p.standardOutput = out; p.standardError = Pipe()
+        guard (try? p.run()) != nil else { return nil }
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { return nil }
+        let path = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let path, !path.isEmpty, FileManager.default.isExecutableFile(atPath: path) { return path }
+        return nil
+    }
+
+    /// True when every tool the URL feature needs is available.
+    static var toolsReady: Bool {
+        ytDlpPath() != nil && denoPath() != nil && AudioConvert.ffmpegPath() != nil
+    }
+
+    static func isURL(_ s: String) -> Bool {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let u = URL(string: t), let scheme = u.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
+    }
+
+    /// Download the best audio stream for a video URL. Returns (localFile, title).
+    /// Prefers an m4a stream (decodable by AVFoundation, no ffmpeg needed).
+    static func downloadAudio(_ urlString: String) throws -> (URL, String) {
+        guard let yt = ytDlpPath() else {
+            throw NSError(domain: "Transcribe", code: 10, userInfo: [NSLocalizedDescriptionKey:
+                "The tools needed to download videos aren't set up yet."])
+        }
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: yt)
+        var args = ["-f", "bestaudio[ext=m4a]/bestaudio/best",
+                    "--no-playlist", "--no-progress",
+                    "-o", dir.appendingPathComponent("%(title)s.%(ext)s").path]
+        // yt-dlp may shell out to ffmpeg; point it at whichever copy we found.
+        if let ff = AudioConvert.ffmpegPath() {
+            args += ["--ffmpeg-location", ff]
+        }
+        // Recent yt-dlp needs a JS runtime for YouTube; point it at deno.
+        if let deno = denoPath() {
+            args += ["--js-runtimes", "deno:\(URL(fileURLWithPath: deno).deletingLastPathComponent().path)"]
+        }
+        args.append(urlString)
+        p.arguments = args
+        // Put the downloaded tools + Homebrew on PATH as a fallback for child processes.
+        var env = ProcessInfo.processInfo.environment
+        let extra = "\(Paths.toolsDir.path):/opt/homebrew/bin:/usr/local/bin"
+        env["PATH"] = (env["PATH"].map { "\(extra):\($0)" }) ?? extra
+        p.environment = env
+        let errPipe = Pipe(); p.standardError = errPipe; p.standardOutput = Pipe()
+        try p.run(); p.waitUntilExit()
+
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil))?
+            .filter { !$0.lastPathComponent.hasPrefix(".") } ?? []
+        guard p.terminationStatus == 0, let file = files.first else {
+            try? FileManager.default.removeItem(at: dir)
+            let e = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            throw NSError(domain: "Transcribe", code: 11, userInfo: [NSLocalizedDescriptionKey:
+                "Could not download audio from that link.\n\(e.trimmingCharacters(in: .whitespacesAndNewlines))"])
+        }
+        let title = file.deletingPathExtension().lastPathComponent
+        return (file, title)
+    }
+}
+
+// MARK: - SRT → readable timestamped text
+
+enum SRT {
+    /// Turn whisper's SRT output into compact lines like "[1:23] some words".
+    static func toTimestamped(_ srt: String) -> String {
+        var out: [String] = []
+        let blocks = srt.replacingOccurrences(of: "\r\n", with: "\n")
+            .components(separatedBy: "\n\n")
+        for block in blocks {
+            let lines = block.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+            guard let timeIdx = lines.firstIndex(where: { $0.contains("-->") }) else { continue }
+            let start = lines[timeIdx].components(separatedBy: "-->").first?
+                .trimmingCharacters(in: .whitespaces) ?? ""
+            let text = lines[(timeIdx + 1)...].joined(separator: " ")
+                .trimmingCharacters(in: .whitespaces)
+            if text.isEmpty { continue }
+            out.append("[\(stamp(start))] \(text)")
+        }
+        return out.joined(separator: "\n")
+    }
+
+    /// "00:01:23,456" → "1:23" (or "1:02:03" when there are hours).
+    private static func stamp(_ s: String) -> String {
+        let hms = s.split(separator: ",").first.map(String.init) ?? s
+        let parts = hms.split(separator: ":").map { Int($0) ?? 0 }
+        guard parts.count == 3 else { return hms }
+        let (h, m, sec) = (parts[0], parts[1], parts[2])
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, sec)
+                     : String(format: "%d:%02d", m, sec)
+    }
+}
+
+// MARK: - Tools manager (on-demand download of yt-dlp / deno / ffmpeg)
+
+enum ToolState: Equatable {
+    case ready
+    case missing
+    case downloading(Double)   // 0...1
+    case failed(String)
+}
+
+final class ToolsManager: NSObject, ObservableObject {
+    struct Spec {
+        let name: String       // final executable name in toolsDir
+        let url: URL
+        let kind: Kind
+        let approxBytes: Int64 // download size estimate, for progress weighting
+    }
+    enum Kind { case raw, gzip, zip }
+
+    @Published var state: ToolState = .missing
+
+    private var session: URLSession!
+    private var queue: [Spec] = []
+    private var index = 0
+    private var totalBytes: Int64 = 1
+    private var doneBytes: Int64 = 0
+
+    private let allSpecs = [
+        Spec(name: "yt-dlp", url: YTDLP_URL,  kind: .raw,  approxBytes: 41_000_000),
+        Spec(name: "ffmpeg", url: FFMPEG_URL, kind: .gzip, approxBytes: 28_000_000),
+        Spec(name: "deno",   url: DENO_URL,   kind: .zip,  approxBytes: 39_000_000),
+    ]
+
+    override init() {
+        super.init()
+        session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+        refresh()
+    }
+
+    func refresh() { state = YouTube.toolsReady ? .ready : .missing }
+
+    /// Download whichever tools can't already be resolved on this machine.
+    func startDownload() {
+        queue = allSpecs.filter { spec in
+            switch spec.name {
+            case "yt-dlp": return YouTube.ytDlpPath() == nil
+            case "deno":   return YouTube.denoPath() == nil
+            case "ffmpeg": return AudioConvert.ffmpegPath() == nil
+            default:       return true
+            }
+        }
+        guard !queue.isEmpty else { refresh(); return }
+        index = 0; doneBytes = 0
+        totalBytes = queue.reduce(0) { $0 + $1.approxBytes }
+        state = .downloading(0)
+        next()
+    }
+
+    private func next() {
+        guard index < queue.count else { DispatchQueue.main.async { self.refresh() }; return }
+        session.downloadTask(with: queue[index].url).resume()
+    }
+
+    private func fail(_ msg: String) { DispatchQueue.main.async { self.state = .failed(msg) } }
+
+    private func install(_ spec: Spec, from location: URL) throws {
+        let fm = FileManager.default
+        let dest = Paths.toolsDir.appendingPathComponent(spec.name)
+        switch spec.kind {
+        case .raw:
+            try? fm.removeItem(at: dest)
+            try fm.moveItem(at: location, to: dest)
+        case .gzip:
+            let gz = Paths.toolsDir.appendingPathComponent(spec.name + ".gz")
+            try? fm.removeItem(at: gz); try? fm.removeItem(at: dest)
+            try fm.moveItem(at: location, to: gz)
+            try run("/usr/bin/gunzip", ["-f", gz.path])          // → dest
+        case .zip:
+            let zip = Paths.toolsDir.appendingPathComponent(spec.name + ".zip")
+            try? fm.removeItem(at: zip); try? fm.removeItem(at: dest)
+            try fm.moveItem(at: location, to: zip)
+            try run("/usr/bin/ditto", ["-x", "-k", zip.path, Paths.toolsDir.path])
+            try? fm.removeItem(at: zip)
+        }
+        guard fm.fileExists(atPath: dest.path) else {
+            throw NSError(domain: "Transcribe", code: 12,
+                          userInfo: [NSLocalizedDescriptionKey: "Could not unpack \(spec.name)."])
+        }
+        // Make it executable and clear quarantine so it can run.
+        try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dest.path)
+        _ = try? run("/usr/bin/xattr", ["-d", "com.apple.quarantine", dest.path])
+    }
+
+    @discardableResult
+    private func run(_ tool: String, _ args: [String]) throws -> Int32 {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: tool)
+        p.arguments = args
+        p.standardOutput = Pipe(); p.standardError = Pipe()
+        try p.run(); p.waitUntilExit()
+        return p.terminationStatus
+    }
+}
+
+extension ToolsManager: URLSessionDownloadDelegate {
+    func urlSession(_ s: URLSession, downloadTask t: URLSessionDownloadTask,
+                    didWriteData: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        let frac = Double(doneBytes + totalBytesWritten) / Double(totalBytes)
+        DispatchQueue.main.async { self.state = .downloading(min(0.99, max(0.01, frac))) }
+    }
+
+    func urlSession(_ s: URLSession, downloadTask t: URLSessionDownloadTask,
+                    didFinishDownloadingTo location: URL) {
+        let spec = queue[index]
+        do { try install(spec, from: location) }
+        catch { fail(error.localizedDescription); return }
+        doneBytes += spec.approxBytes
+        index += 1
+        next()
+    }
+
+    func urlSession(_ s: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error { fail(error.localizedDescription) }
     }
 }
 
@@ -285,8 +546,40 @@ final class Store: ObservableObject {
         if !bad.isEmpty { errorText = "Unsupported: " + bad.joined(separator: ", ") }
     }
 
-    private func transcribe(_ url: URL) {
-        let job = RunningJob(fileName: url.lastPathComponent, start: Date())
+    /// Paste-a-link entry point: download the audio, then transcribe with timestamps.
+    func addYouTube(_ urlString: String) {
+        let link = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard YouTube.isURL(link) else { errorText = "That doesn't look like a valid URL."; return }
+        let job = RunningJob(fileName: "Downloading video…", start: Date())
+        running.insert(job, at: 0)
+        let jid = job.id
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let (audio, title) = try YouTube.downloadAudio(link)
+                DispatchQueue.main.async {
+                    self.running.removeAll { $0.id == jid }
+                    self.transcribe(audio, displayName: title, sourcePath: link,
+                                    timestamps: true, cleanupSource: true)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.running.removeAll { $0.id == jid }
+                    self.errorText = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// - Parameters:
+    ///   - displayName: name shown in history (defaults to the file name).
+    ///   - sourcePath: value stored for "Reveal/Open" and re-runs (defaults to the file path).
+    ///   - timestamps: emit `[m:ss]`-prefixed lines instead of plain text.
+    ///   - cleanupSource: delete the input file (and its temp dir) once converted.
+    private func transcribe(_ url: URL, displayName: String? = nil, sourcePath: String? = nil,
+                            timestamps: Bool = false, cleanupSource: Bool = false) {
+        let name = displayName ?? url.lastPathComponent
+        let source = sourcePath ?? url.path
+        let job = RunningJob(fileName: name, start: Date())
         running.insert(job, at: 0)
         let jid = job.id
         DispatchQueue.global(qos: .userInitiated).async {
@@ -294,23 +587,32 @@ final class Store: ObservableObject {
             var text = ""; var ok = false; var errMsg = ""
             do {
                 let wav = try AudioConvert.toWav(url)
-                defer { try? FileManager.default.removeItem(at: wav) }
+                defer {
+                    try? FileManager.default.removeItem(at: wav)
+                    if cleanupSource {
+                        try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+                    }
+                }
                 let outStem = FileManager.default.temporaryDirectory
                     .appendingPathComponent(UUID().uuidString)
                 let p = Process()
                 p.executableURL = Paths.whisperBin
                 p.arguments = ["-m", Paths.modelBin.path, "-f", wav.path,
                                "-l", "auto", "-t", "\(perfCores())",
-                               "-otxt", "-of", outStem.path]
+                               timestamps ? "-osrt" : "-otxt", "-of", outStem.path]
                 p.standardOutput = Pipe(); p.standardError = Pipe()
                 try p.run(); p.waitUntilExit()
-                let txt = outStem.appendingPathExtension("txt")
-                if let raw = try? String(contentsOf: txt, encoding: .utf8) {
-                    text = raw.split(separator: "\n")
-                        .map { $0.hasPrefix(" ") ? String($0.dropFirst()) : String($0) }
-                        .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-                        .joined(separator: "\n")
-                    try? FileManager.default.removeItem(at: txt)
+                let out = outStem.appendingPathExtension(timestamps ? "srt" : "txt")
+                if let raw = try? String(contentsOf: out, encoding: .utf8) {
+                    if timestamps {
+                        text = SRT.toTimestamped(raw)
+                    } else {
+                        text = raw.split(separator: "\n")
+                            .map { $0.hasPrefix(" ") ? String($0.dropFirst()) : String($0) }
+                            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                            .joined(separator: "\n")
+                    }
+                    try? FileManager.default.removeItem(at: out)
                 }
                 ok = p.terminationStatus == 0 && !text.isEmpty
                 if !ok { errMsg = "whisper exited \(p.terminationStatus)" }
@@ -319,19 +621,23 @@ final class Store: ObservableObject {
             DispatchQueue.main.async {
                 self.running.removeAll { $0.id == jid }
                 if ok {
-                    let t = Transcript(fileName: url.lastPathComponent, filePath: url.path,
+                    let t = Transcript(fileName: name, filePath: source,
                                        date: Date(), text: text, seconds: elapsed)
                     self.items.insert(t, at: 0); self.selection = t.id; self.save()
-                    let side = url.deletingPathExtension().appendingPathExtension("txt")
-                    try? t.text.write(to: side, atomically: true, encoding: .utf8)
+                    // Write a sidecar .txt next to real local files only.
+                    if !cleanupSource {
+                        let side = url.deletingPathExtension().appendingPathExtension("txt")
+                        try? t.text.write(to: side, atomically: true, encoding: .utf8)
+                    }
                 } else {
-                    self.errorText = "Could not transcribe \(url.lastPathComponent).\n\(errMsg)"
+                    self.errorText = "Could not transcribe \(name).\n\(errMsg)"
                 }
             }
         }
     }
 
     func retranscribe(_ t: Transcript) {
+        if YouTube.isURL(t.filePath) { addYouTube(t.filePath); return }
         let u = URL(fileURLWithPath: t.filePath)
         if FileManager.default.fileExists(atPath: u.path) { transcribe(u) }
         else { errorText = "Original file no longer exists:\n\(t.filePath)" }
@@ -345,12 +651,14 @@ struct TranscribeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var store = Store()
     @StateObject private var models = ModelManager()
+    @StateObject private var tools = ToolsManager()
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(store)
                 .environmentObject(models)
+                .environmentObject(tools)
                 .frame(minWidth: 720, minHeight: 460)
                 .onAppear { appDelegate.store = store; appDelegate.models = models; appDelegate.flush() }
         }
@@ -464,10 +772,22 @@ struct ContentView: View {
 
 struct Sidebar: View {
     @EnvironmentObject var store: Store
+    @EnvironmentObject var tools: ToolsManager
     @State private var targeted = false
+    @State private var showURLSheet = false
     var body: some View {
         VStack(spacing: 0) {
-            DropZone(targeted: $targeted).padding(12)
+            DropZone(targeted: $targeted).padding(.horizontal, 12).padding(.top, 12)
+            Button { showURLSheet = true } label: {
+                Label("Transcribe from a URL…", systemImage: "link")
+                    .font(.caption)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.link)
+            .padding(.top, 8).padding(.bottom, 10)
+            .sheet(isPresented: $showURLSheet) {
+                URLSheet().environmentObject(store).environmentObject(tools)
+            }
             Divider()
             if store.items.isEmpty && store.running.isEmpty {
                 Spacer(); Text("No transcriptions yet").foregroundStyle(.muted).font(.callout); Spacer()
@@ -531,6 +851,104 @@ struct DropZone: View {
     }
 }
 
+// Secondary feature: paste a link, tools are fetched on first use, then transcribe.
+struct URLSheet: View {
+    @EnvironmentObject var store: Store
+    @EnvironmentObject var tools: ToolsManager
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @State private var submitWhenReady = false
+    private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "link.circle.fill").font(.system(size: 26)).foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Transcribe from a URL").font(.headline)
+                    Text("Paste a YouTube (or other video) link. The audio is downloaded, then transcribed on your Mac with timestamps.")
+                        .font(.caption).foregroundStyle(.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            TextField("https://www.youtube.com/watch?v=…", text: $text)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(primaryAction)
+
+            statusRow
+
+            Text("Downloading content may be against a site's terms of service. Use it only for videos you have the right to.")
+                .font(.caption2).foregroundStyle(.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Spacer()
+                primaryButton
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+        .onChange(of: tools.state) { _, newState in
+            if newState == .ready, submitWhenReady { submit() }
+        }
+    }
+
+    @ViewBuilder private var statusRow: some View {
+        switch tools.state {
+        case .ready:
+            EmptyView()
+        case .missing:
+            Label("First use downloads a few helper tools (~110 MB, one time).",
+                  systemImage: "arrow.down.circle")
+                .font(.caption).foregroundStyle(.muted)
+        case .downloading(let p):
+            VStack(alignment: .leading, spacing: 4) {
+                ProgressView(value: p)
+                Text("Setting up tools… \(Int(p * 100))%").font(.caption).foregroundStyle(.muted)
+            }
+        case .failed(let msg):
+            Label(msg, systemImage: "exclamationmark.triangle")
+                .font(.caption).foregroundStyle(.red).lineLimit(3)
+        }
+    }
+
+    @ViewBuilder private var primaryButton: some View {
+        switch tools.state {
+        case .ready:
+            Button("Transcribe") { submit() }
+                .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                .disabled(trimmed.isEmpty)
+        case .downloading:
+            Button("Setting up…") {}.buttonStyle(.borderedProminent).disabled(true)
+        case .failed:
+            Button("Retry") { primaryAction() }.buttonStyle(.borderedProminent)
+        case .missing:
+            Button(trimmed.isEmpty ? "Download tools" : "Download & transcribe") { primaryAction() }
+                .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+        }
+    }
+
+    private func primaryAction() {
+        switch tools.state {
+        case .ready:
+            submit()
+        case .missing, .failed:
+            submitWhenReady = !trimmed.isEmpty
+            tools.startDownload()
+        case .downloading:
+            break
+        }
+    }
+
+    private func submit() {
+        guard !trimmed.isEmpty else { return }
+        store.addYouTube(trimmed)
+        dismiss()
+    }
+}
+
 struct RunningRow: View {
     let job: RunningJob
     var body: some View {
@@ -582,7 +1000,11 @@ struct DetailPane: View {
             .toolbar {
                 ToolbarItemGroup {
                     Button { copy(t.text) } label: { Label("Copy", systemImage: "doc.on.doc") }
-                    Button { reveal(t.filePath) } label: { Label("Reveal", systemImage: "magnifyingglass") }
+                    if YouTube.isURL(t.filePath) {
+                        Button { open(t.filePath) } label: { Label("Open", systemImage: "safari") }
+                    } else {
+                        Button { reveal(t.filePath) } label: { Label("Reveal", systemImage: "magnifyingglass") }
+                    }
                     Button { store.retranscribe(t) } label: { Label("Re-run", systemImage: "arrow.clockwise") }
                     Button(role: .destructive) { store.delete(t.id) } label: { Label("Delete", systemImage: "trash") }
                 }
@@ -598,4 +1020,5 @@ struct DetailPane: View {
     private func wc(_ s: String) -> Int { s.split { $0 == " " || $0 == "\n" }.count }
     private func copy(_ s: String) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string) }
     private func reveal(_ p: String) { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: p)]) }
+    private func open(_ p: String) { if let u = URL(string: p) { NSWorkspace.shared.open(u) } }
 }
