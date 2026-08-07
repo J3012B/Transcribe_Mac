@@ -1,0 +1,21 @@
+name: CI
+
+# Fast build check on every PR and on pushes to non-main branches.
+# Pushes to main are handled by release.yml (which also builds).
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+jobs:
+  build:
+    runs-on: macos-14   # Apple Silicon
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (ad-hoc)
+        run: ./build.sh
+      - name: Sanity-check bundle
+        run: |
+          test -x build/Transcribe.app/Contents/MacOS/Transcribe
+          /usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' \
+            build/Transcribe.app/Contents/Info.plist

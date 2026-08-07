@@ -1,0 +1,103 @@
+name: Release
+
+# Ship on every push to main: build → DMG → GitHub Release.
+# The release always includes a stable-named `Transcribe.dmg`, so the website and
+# install script can link to `releases/latest/download/Transcribe.dmg` forever.
+#
+# Versioning is automatic:
+#   marketing version = CFBundleShortVersionString in Info.plist (e.g. 1.0)
+#   full version      = <marketing>.<run number>   ->  tag v<full>
+# Bump the marketing version by editing Info.plist (or scripts/bump-version.sh).
+# Pushing a v* tag releases that exact version instead.
+#
+# Signing & notarization are OPTIONAL. With the repo secrets below the build is
+# signed with your Developer ID and notarized; otherwise it ships ad-hoc (the
+# install script strips quarantine so the curl install still works).
+#
+# Secrets (Settings > Secrets and variables > Actions):
+#   MACOS_CERT_P12        base64 of your "Developer ID Application" .p12
+#   MACOS_CERT_PASSWORD   password for that .p12
+#   MACOS_SIGN_IDENTITY   e.g. "Developer ID Application: Your Name (TEAMID)"
+#   AC_APPLE_ID / AC_PASSWORD (app-specific) / AC_TEAM_ID   for notarization
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-14   # Apple Silicon runner
+    env:
+      HAS_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version
+        id: ver
+        run: |
+          BASE=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Info.plist)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="${BASE}.${GITHUB_RUN_NUMBER}"
+          fi
+          {
+            echo "version=$VERSION"
+            echo "build=$GITHUB_RUN_NUMBER"
+            echo "tag=v$VERSION"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing $VERSION (build $GITHUB_RUN_NUMBER)"
+
+      - name: Import signing certificate
+        if: ${{ env.HAS_CERT == 'true' }}
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain"
+          KEYCHAIN_PW="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PW" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain
+
+      - name: Build app
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          MARKETING_VERSION: ${{ steps.ver.outputs.version }}
+          BUILD_NUMBER: ${{ steps.ver.outputs.build }}
+        run: ./build.sh
+
+      - name: Package DMG
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          AC_APPLE_ID: ${{ secrets.AC_APPLE_ID }}
+          AC_PASSWORD: ${{ secrets.AC_PASSWORD }}
+          AC_TEAM_ID: ${{ secrets.AC_TEAM_ID }}
+        run: ./scripts/make-dmg.sh
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: Transcribe ${{ steps.ver.outputs.version }}
+          files: |
+            build/Transcribe.dmg
+            build/Transcribe-*.dmg
+          generate_release_notes: true
+          make_latest: true
+          fail_on_unmatched_files: true
