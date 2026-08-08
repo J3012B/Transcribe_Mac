@@ -374,6 +374,17 @@ enum SRT {
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, sec)
                      : String(format: "%d:%02d", m, sec)
     }
+
+    /// Remove the leading "[m:ss] " timestamp prefix from each line, for the
+    /// "hide timestamps" view. Lines without a prefix (older plain transcripts)
+    /// are passed through unchanged.
+    static func stripTimestamps(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+            let s = String(line)
+            guard s.hasPrefix("["), let close = s.firstIndex(of: "]") else { return s }
+            return String(s[s.index(after: close)...].drop { $0 == " " })
+        }.joined(separator: "\n")
+    }
 }
 
 // MARK: - Tools manager (on-demand download of yt-dlp / deno / ffmpeg)
@@ -559,7 +570,7 @@ final class Store: ObservableObject {
                 DispatchQueue.main.async {
                     self.running.removeAll { $0.id == jid }
                     self.transcribe(audio, displayName: title, sourcePath: link,
-                                    timestamps: true, cleanupSource: true)
+                                    cleanupSource: true)
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -570,13 +581,15 @@ final class Store: ObservableObject {
         }
     }
 
+    /// Transcription always produces `[m:ss]`-prefixed, timestamped text. The
+    /// output screen can hide the timestamps with a toggle (see DetailPane),
+    /// so we keep the full information here and strip it only for display.
     /// - Parameters:
     ///   - displayName: name shown in history (defaults to the file name).
     ///   - sourcePath: value stored for "Reveal/Open" and re-runs (defaults to the file path).
-    ///   - timestamps: emit `[m:ss]`-prefixed lines instead of plain text.
     ///   - cleanupSource: delete the input file (and its temp dir) once converted.
     private func transcribe(_ url: URL, displayName: String? = nil, sourcePath: String? = nil,
-                            timestamps: Bool = false, cleanupSource: Bool = false) {
+                            cleanupSource: Bool = false) {
         let name = displayName ?? url.lastPathComponent
         let source = sourcePath ?? url.path
         let job = RunningJob(fileName: name, start: Date())
@@ -597,21 +610,16 @@ final class Store: ObservableObject {
                     .appendingPathComponent(UUID().uuidString)
                 let p = Process()
                 p.executableURL = Paths.whisperBin
+                // Always emit SRT so every transcript carries timestamps; the UI
+                // decides whether to show them.
                 p.arguments = ["-m", Paths.modelBin.path, "-f", wav.path,
                                "-l", "auto", "-t", "\(perfCores())",
-                               timestamps ? "-osrt" : "-otxt", "-of", outStem.path]
+                               "-osrt", "-of", outStem.path]
                 p.standardOutput = Pipe(); p.standardError = Pipe()
                 try p.run(); p.waitUntilExit()
-                let out = outStem.appendingPathExtension(timestamps ? "srt" : "txt")
+                let out = outStem.appendingPathExtension("srt")
                 if let raw = try? String(contentsOf: out, encoding: .utf8) {
-                    if timestamps {
-                        text = SRT.toTimestamped(raw)
-                    } else {
-                        text = raw.split(separator: "\n")
-                            .map { $0.hasPrefix(" ") ? String($0.dropFirst()) : String($0) }
-                            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-                            .joined(separator: "\n")
-                    }
+                    text = SRT.toTimestamped(raw)
                     try? FileManager.default.removeItem(at: out)
                 }
                 ok = p.terminationStatus == 0 && !text.isEmpty
@@ -624,10 +632,13 @@ final class Store: ObservableObject {
                     let t = Transcript(fileName: name, filePath: source,
                                        date: Date(), text: text, seconds: elapsed)
                     self.items.insert(t, at: 0); self.selection = t.id; self.save()
-                    // Write a sidecar .txt next to real local files only.
+                    // Write a sidecar .txt next to real local files only, matching
+                    // the user's current "show timestamps" preference.
                     if !cleanupSource {
                         let side = url.deletingPathExtension().appendingPathExtension("txt")
-                        try? t.text.write(to: side, atomically: true, encoding: .utf8)
+                        let showStamps = UserDefaults.standard.object(forKey: "showTimestamps") as? Bool ?? true
+                        let body = showStamps ? t.text : SRT.stripTimestamps(t.text)
+                        try? body.write(to: side, atomically: true, encoding: .utf8)
                     }
                 } else {
                     self.errorText = "Could not transcribe \(name).\n\(errMsg)"
@@ -970,7 +981,7 @@ struct HistoryRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(item.fileName).lineLimit(1).fontWeight(.medium)
-            Text(item.text).lineLimit(1).font(.caption).foregroundStyle(.muted)
+            Text(SRT.stripTimestamps(item.text)).lineLimit(1).font(.caption).foregroundStyle(.muted)
             Text(item.date.formatted(.relative(presentation: .named)))
                 .font(.caption2).foregroundStyle(.muted)
         }.padding(.vertical, 2)
@@ -979,27 +990,38 @@ struct HistoryRow: View {
 
 struct DetailPane: View {
     @EnvironmentObject var store: Store
+    @AppStorage("showTimestamps") private var showTimestamps = true
     var current: Transcript? { store.items.first { $0.id == store.selection } }
+    /// The text as currently displayed — with or without the `[m:ss]` stamps.
+    private func shown(_ t: Transcript) -> String {
+        showTimestamps ? t.text : SRT.stripTimestamps(t.text)
+    }
     var body: some View {
         if let t = current {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(t.fileName).font(.headline).lineLimit(1)
-                        Text("\(t.date.formatted(date: .abbreviated, time: .shortened)) · \(wc(t.text)) words · \(Int(t.seconds))s")
+                        Text("\(t.date.formatted(date: .abbreviated, time: .shortened)) · \(wc(shown(t))) words · \(Int(t.seconds))s")
                             .font(.caption).foregroundStyle(.muted)
                     }
                     Spacer()
+                    Toggle(isOn: $showTimestamps) {
+                        Label("Timestamps", systemImage: "clock")
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .help("Show or hide the [m:ss] timestamps in the output.")
                 }.padding(16)
                 Divider()
                 ScrollView {
-                    Text(t.text).textSelection(.enabled).font(.system(size: 14)).lineSpacing(4)
+                    Text(shown(t)).textSelection(.enabled).font(.system(size: 14)).lineSpacing(4)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(16)
                 }
             }
             .toolbar {
                 ToolbarItemGroup {
-                    Button { copy(t.text) } label: { Label("Copy", systemImage: "doc.on.doc") }
+                    Button { copy(shown(t)) } label: { Label("Copy", systemImage: "doc.on.doc") }
                     if YouTube.isURL(t.filePath) {
                         Button { open(t.filePath) } label: { Label("Open", systemImage: "safari") }
                     } else {
