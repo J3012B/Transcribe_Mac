@@ -4,6 +4,16 @@ A self-contained macOS app that transcribes audio and video files **locally** on
 
 Built with SwiftUI and [whisper.cpp](https://github.com/ggerganov/whisper.cpp) (CoreML + Metal accelerated), bundled inside the `.app`.
 
+**[⬇ Download for macOS](https://github.com/J3012B/Transcribe_Mac/releases/latest/download/Transcribe.dmg)** · [Website](https://transcribe.heliconsolutions.net/) · [♥ Donate](https://donate.stripe.com/14AdR8fWj0ts8CUeoGd3i00)
+
+![Transcribe: drop zone and history on the left, a meeting transcript on the right](docs/screenshots/app.png)
+
+## Support
+
+Transcribe is free and open source, with no ads, accounts or tracking. If it saves
+you time, consider **[making a small donation](https://donate.stripe.com/14AdR8fWj0ts8CUeoGd3i00)**. It helps keep
+the app maintained. Thank you!
+
 ## Features
 
 - 100% offline transcription (audio never leaves the machine)
@@ -14,6 +24,8 @@ Built with SwiftUI and [whisper.cpp](https://github.com/ggerganov/whisper.cpp) (
 - Optionally paste a YouTube (or other video) URL to transcribe it **with timestamps** — the required tools are fetched on demand, not bundled
 
 ### Transcribing from a URL (secondary feature)
+
+![A lecture transcribed from a YouTube link, with timestamps](docs/screenshots/timestamps.png)
 
 Click **"Transcribe from a URL…"** under the drop zone, paste a YouTube (or other
 video) link, and the app downloads just the audio and produces a timestamped

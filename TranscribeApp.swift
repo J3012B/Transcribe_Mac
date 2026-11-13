@@ -21,6 +21,9 @@ let YTDLP_URL  = URL(string: "https://github.com/yt-dlp/yt-dlp/releases/download
 let FFMPEG_URL = URL(string: "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-darwin-arm64.gz")!
 let DENO_URL   = URL(string: "https://github.com/denoland/deno/releases/download/v2.9.5/deno-aarch64-apple-darwin.zip")!
 
+// Where the in-app "Support" button sends people (same link as the website + README).
+let DONATE_URL = URL(string: "https://donate.stripe.com/14AdR8fWj0ts8CUeoGd3i00")!
+
 let SUPPORTED: Set<String> = ["m4a","mp3","wav","aiff","aif","caf","flac","mp4","mov",
                               "m4v","aac","3gp","amr","au","ogg","oga","opus","webm"]
 
@@ -40,7 +43,14 @@ enum Paths {
     }
     static var modelBin: URL { modelsDir.appendingPathComponent("\(MODEL_STEM).bin") }
     static var modelCoreML: URL { modelsDir.appendingPathComponent("\(MODEL_STEM)-encoder.mlmodelc") }
-    static var historyFile: URL { support.appendingPathComponent("history.json") }
+    // TRANSCRIBE_HISTORY overrides the history file (used to render demo screenshots
+    // without touching real data).
+    static var historyFile: URL {
+        if let p = ProcessInfo.processInfo.environment["TRANSCRIBE_HISTORY"], !p.isEmpty {
+            return URL(fileURLWithPath: p)
+        }
+        return support.appendingPathComponent("history.json")
+    }
     // Bundled binary: Contents/Resources/whisper/bin/whisper-cli
     static var whisperBin: URL {
         Bundle.main.resourceURL!.appendingPathComponent("whisper/bin/whisper-cli")
@@ -527,6 +537,7 @@ final class Store: ObservableObject {
         guard let d = try? Data(contentsOf: Paths.historyFile),
               let arr = try? JSONDecoder().decode([Transcript].self, from: d) else { return }
         items = arr.sorted { $0.date > $1.date }
+        if ProcessInfo.processInfo.environment["TRANSCRIBE_HISTORY"] != nil { selection = items.first?.id }
     }
     private func save() {
         if let d = try? JSONEncoder().encode(items) { try? d.write(to: Paths.historyFile) }
@@ -663,6 +674,11 @@ struct TranscribeApp: App {
                 .onAppear { appDelegate.store = store; appDelegate.models = models; appDelegate.flush() }
         }
         .defaultSize(width: 900, height: 580)
+        .commands {
+            CommandGroup(after: .help) {
+                Button("Support Transcribe…") { NSWorkspace.shared.open(DONATE_URL) }
+            }
+        }
     }
 }
 
@@ -806,8 +822,14 @@ struct Sidebar: View {
             }
             Divider()
             HStack {
-                BrandGlyph(size: 12).foregroundStyle(.muted); Text("Whisper · small")
-                Spacer(); Text("local · offline")
+                BrandGlyph(size: 12).foregroundStyle(.muted); Text("Whisper · small · offline")
+                Spacer()
+                Button { NSWorkspace.shared.open(DONATE_URL) } label: {
+                    Label("Support", systemImage: "heart.fill")
+                }
+                .buttonStyle(.link)
+                .foregroundStyle(.pink)
+                .help("Transcribe is free and open source. Chip in to support it.")
             }.font(.caption).foregroundStyle(.muted).padding(.horizontal, 12).padding(.vertical, 8)
         }.background(.background)
     }
