@@ -666,6 +666,107 @@ final class Store: ObservableObject {
     }
 }
 
+// MARK: - Update check
+// Once a day (and on demand) asks GitHub for the latest release and, if it's newer
+// than this build, shows a small "Update available" banner. Nothing is sent but a
+// plain GET to the public GitHub API; it can be switched off in the app menu.
+
+let RELEASES_API = URL(string: "https://api.github.com/repos/J3012B/Transcribe_Mac/releases/latest")!
+let DOWNLOAD_URL = URL(string: "https://github.com/J3012B/Transcribe_Mac/releases/latest/download/Transcribe.dmg")!
+
+final class UpdateChecker: ObservableObject {
+    struct Release: Equatable { var version: String; var notesURL: URL }
+    @Published var available: Release?
+    @Published var lastResult: String?
+
+    static let enabledKey = "autoCheckForUpdates"
+    private let lastCheckKey = "lastUpdateCheck"
+    private let dismissedKey = "dismissedUpdateVersion"
+
+    var enabled: Bool {
+        get { UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: Self.enabledKey); objectWillChange.send() }
+    }
+    static var currentVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+    }
+
+    /// Automatic check: at most once per day, only if enabled.
+    func checkIfDue() {
+        guard enabled else { return }
+        let last = UserDefaults.standard.double(forKey: lastCheckKey)
+        guard Date().timeIntervalSince1970 - last > 86_400 else { return }
+        check(userInitiated: false)
+    }
+
+    func check(userInitiated: Bool) {
+        var req = URLRequest(url: RELEASES_API, timeoutInterval: 15)
+        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        req.setValue("Transcribe/\(Self.currentVersion)", forHTTPHeaderField: "User-Agent")
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            guard let data,
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let tag = obj["tag_name"] as? String else {
+                DispatchQueue.main.async { if userInitiated { self.lastResult = "Couldn't reach GitHub. Try again later." } }
+                return
+            }
+            let latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+            let notes = (obj["html_url"] as? String).flatMap(URL.init(string:))
+                ?? URL(string: "https://github.com/J3012B/Transcribe_Mac/releases/latest")!
+            DispatchQueue.main.async {
+                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: self.lastCheckKey)
+                if Self.isNewer(latest, than: Self.currentVersion) {
+                    let dismissed = UserDefaults.standard.string(forKey: self.dismissedKey)
+                    if userInitiated || dismissed != latest {
+                        self.available = Release(version: latest, notesURL: notes)
+                    }
+                } else if userInitiated {
+                    self.lastResult = "You're up to date (version \(Self.currentVersion))."
+                }
+            }
+        }.resume()
+    }
+
+    func dismiss() {
+        if let v = available?.version { UserDefaults.standard.set(v, forKey: dismissedKey) }
+        available = nil
+    }
+
+    static func isNewer(_ a: String, than b: String) -> Bool {
+        let pa = a.split(separator: ".").map { Int($0) ?? 0 }
+        let pb = b.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(pa.count, pb.count) {
+            let x = i < pa.count ? pa[i] : 0, y = i < pb.count ? pb[i] : 0
+            if x != y { return x > y }
+        }
+        return false
+    }
+}
+
+struct UpdateBanner: View {
+    @EnvironmentObject var updates: UpdateChecker
+    var body: some View {
+        if let r = updates.available {
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.down.circle.fill").font(.title3).foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Transcribe \(r.version) is available").font(.callout).fontWeight(.medium)
+                    Button("What's new") { NSWorkspace.shared.open(r.notesURL) }
+                        .buttonStyle(.link).font(.caption)
+                }
+                Spacer()
+                Button("Download") { NSWorkspace.shared.open(DOWNLOAD_URL) }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+                Button { updates.dismiss() } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.plain).foregroundStyle(.muted).help("Hide until the next version")
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.accentColor.opacity(0.10)))
+            .padding(.horizontal, 12).padding(.top, 12)
+        }
+    }
+}
+
 // MARK: - App
 
 @main
@@ -674,6 +775,7 @@ struct TranscribeApp: App {
     @StateObject private var store = Store()
     @StateObject private var models = ModelManager()
     @StateObject private var tools = ToolsManager()
+    @StateObject private var updates = UpdateChecker()
 
     var body: some Scene {
         WindowGroup {
@@ -681,11 +783,25 @@ struct TranscribeApp: App {
                 .environmentObject(store)
                 .environmentObject(models)
                 .environmentObject(tools)
+                .environmentObject(updates)
                 .frame(minWidth: 720, minHeight: 460)
-                .onAppear { appDelegate.store = store; appDelegate.models = models; appDelegate.flush() }
+                .onAppear {
+                    appDelegate.store = store; appDelegate.models = models; appDelegate.flush()
+                    updates.checkIfDue()
+                }
+                .alert(updates.lastResult ?? "",
+                       isPresented: Binding(get: { updates.lastResult != nil },
+                                            set: { if !$0 { updates.lastResult = nil } })) {
+                    Button("OK", role: .cancel) {}
+                }
         }
         .defaultSize(width: 900, height: 580)
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { updates.check(userInitiated: true) }
+                Toggle("Automatically Check for Updates", isOn: Binding(
+                    get: { updates.enabled }, set: { updates.enabled = $0 }))
+            }
             CommandGroup(after: .help) {
                 Button("Support Transcribe…") { NSWorkspace.shared.open(DONATE_URL) }
             }
@@ -804,6 +920,7 @@ struct Sidebar: View {
     @State private var showURLSheet = false
     var body: some View {
         VStack(spacing: 0) {
+            UpdateBanner()
             DropZone(targeted: $targeted).padding(.horizontal, 12).padding(.top, 12)
             Button { showURLSheet = true } label: {
                 Label("Transcribe from a URL…", systemImage: "link")

@@ -17,6 +17,8 @@ the app maintained. Thank you!
 ## Features
 
 - 100% offline transcription (audio never leaves the machine)
+- Tells you when a new version is out (a once-a-day check of GitHub's public
+  releases API; switch it off under **Transcribe ▸ Automatically Check for Updates**)
 - Bundles whisper.cpp with CoreML + Metal acceleration
 - Converts audio via AVFoundation (no ffmpeg required)
 - Downloads the Whisper model automatically on first launch (~650MB, cached)
@@ -29,7 +31,7 @@ the app maintained. Thank you!
 
 Click **"Transcribe from a URL…"** under the drop zone, paste a YouTube (or other
 video) link, and the app downloads just the audio and produces a timestamped
-transcript (`[m:ss] …` lines). This is the one feature that reaches the network —
+transcript (`[m:ss] …` lines). Apart from the model download and the update check, this is the one feature that reaches the network —
 it fetches the video you asked for; the transcription itself still runs locally.
 
 To keep the app small (~5 MB), the helper tools this needs are **downloaded on
@@ -98,6 +100,21 @@ git commit -am "Release 1.1" && git push
 
 Pull requests and non-`main` branches get a build check via
 `.github/workflows/ci.yml` (no release).
+
+### How users get updates
+
+- **In the app:** once a day the app checks
+  `api.github.com/repos/J3012B/Transcribe_Mac/releases/latest` and shows an
+  "Update available" banner with a Download button when a newer release exists.
+  **Transcribe ▸ Check for Updates…** checks on demand. Nothing about the user or
+  their files is sent, just a plain GET request.
+- **Homebrew:** after each release, the workflow bumps `version` and `sha256` in
+  [`J3012B/homebrew-tap`](https://github.com/J3012B/homebrew-tap), so
+  `brew upgrade --cask transcribe` picks it up. This needs the `TAP_DEPLOY_KEY`
+  repo secret (an SSH deploy key with write access to the tap repo). Without it
+  the step is skipped.
+- **Website / install script** always point at `releases/latest`, so they need
+  no change.
 
 ### Signing & notarization (for a warning-free download)
 
