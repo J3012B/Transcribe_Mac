@@ -38,6 +38,7 @@ jobs:
     runs-on: macos-15   # Apple Silicon runner
     env:
       HAS_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
+      HAS_TAP_KEY: ${{ secrets.TAP_DEPLOY_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -101,3 +102,28 @@ jobs:
           generate_release_notes: true
           make_latest: true
           fail_on_unmatched_files: true
+
+      # Keep the Homebrew cask (J3012B/homebrew-tap) pointing at this release.
+      # Needs TAP_DEPLOY_KEY: an SSH deploy key with write access to the tap repo.
+      - name: Update Homebrew cask
+        if: ${{ env.HAS_TAP_KEY == 'true' }}
+        env:
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          DMG="build/Transcribe-${VERSION}.dmg"
+          SHA=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
+          mkdir -p ~/.ssh && echo "$TAP_DEPLOY_KEY" > ~/.ssh/tap_key && chmod 600 ~/.ssh/tap_key
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/tap_key -o StrictHostKeyChecking=accept-new"
+          git clone --depth 1 git@github.com:J3012B/homebrew-tap.git "$RUNNER_TEMP/tap"
+          cd "$RUNNER_TEMP/tap"
+          CASK=Casks/transcribe.rb
+          sed -i '' -E "s/^  version \".*\"/  version \"${VERSION}\"/" "$CASK"
+          sed -i '' -E "s/^  sha256 \".*\"/  sha256 \"${SHA}\"/" "$CASK"
+          sed -i '' -E 's#^  url ".*"#  url "https://github.com/J3012B/Transcribe_Mac/releases/download/v\#{version}/Transcribe-\#{version}.dmg"#' "$CASK"
+          git diff --quiet && { echo "Cask already up to date"; exit 0; }
+          git -c user.name="transcribe-release-bot" -c user.email="actions@users.noreply.github.com" \
+            commit -am "transcribe ${VERSION}"
+          git push origin HEAD
+          rm -f ~/.ssh/tap_key
