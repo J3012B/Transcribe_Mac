@@ -6,7 +6,7 @@ Built with SwiftUI and [whisper.cpp](https://github.com/ggerganov/whisper.cpp) (
 
 **[⬇ Download for macOS](https://github.com/J3012B/Transcribe_Mac/releases/latest/download/Transcribe.dmg)** · [Website](https://transcribe.heliconsolutions.net/) · [♥ Donate](https://donate.stripe.com/14AdR8fWj0ts8CUeoGd3i00)
 
-![Transcribe: drop zone and history on the left, a meeting transcript on the right](docs/screenshots/app.png)
+![Transcribe: drop zone and history on the left, a meeting transcript on the right](site/screenshots/app.png)
 
 ## Support
 
@@ -27,7 +27,7 @@ the app maintained. Thank you!
 
 ### Transcribing from a URL (secondary feature)
 
-![A lecture transcribed from a YouTube link, with timestamps](docs/screenshots/timestamps.png)
+![A lecture transcribed from a YouTube link, with timestamps](site/screenshots/timestamps.png)
 
 Click **"Transcribe from a URL…"** under the drop zone, paste a YouTube (or other
 video) link, and the app downloads just the audio and produces a timestamped
@@ -89,7 +89,6 @@ always point at the newest build with no extra work:
   ```bash
   wrangler pages deploy site --project-name transcribe-mac --branch main
   ```
-  (`docs/` is an older copy served by GitHub Pages at j3012b.github.io/Transcribe_Mac.)
 - **Install script** — `install.sh`:
   ```bash
   curl -fsSL https://raw.githubusercontent.com/J3012B/Transcribe_Mac/main/install.sh | bash
@@ -144,11 +143,6 @@ export NOTARY_PROFILE="transcribe"   # from `xcrun notarytool store-credentials`
 ./build.sh && ./scripts/make-dmg.sh
 ```
 
-### One-time setup on GitHub
-
-Enable Pages so the website goes live: **Settings ▸ Pages ▸ Source: Deploy from a
-branch ▸ `main` / `docs`**. The site then updates on every push.
-
 ## Project layout
 
 | Path | Purpose |
@@ -161,7 +155,6 @@ branch ▸ `main` / `docs`**. The site then updates on every push.
 | `icon/` | Python scripts that regenerate the icon and glyph assets |
 | `install.sh` | `curl \| bash` installer (downloads the latest release DMG) |
 | `site/` | Live landing page (Cloudflare Pages, transcribe.heliconsolutions.net) |
-| `docs/` | Older GitHub Pages copy of the landing page + screenshots used by this README |
 | `scripts/make-dmg.sh` | Packages (and optionally signs/notarizes) the DMG |
 | `scripts/bump-version.sh` | Bumps the marketing version in `Info.plist` |
 | `.github/workflows/ci.yml` | Build check on PRs / non-main branches |
