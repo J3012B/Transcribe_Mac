@@ -35,7 +35,7 @@ concurrency:
 
 jobs:
   release:
-    runs-on: macos-14   # Apple Silicon runner
+    runs-on: macos-15   # Apple Silicon runner
     env:
       HAS_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
     steps:
