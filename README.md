@@ -82,8 +82,14 @@ release includes a stable-named **`Transcribe.dmg`**, so these three channels
 always point at the newest build with no extra work:
 
 - **GitHub** — <https://github.com/J3012B/Transcribe_Mac/releases/latest>
-- **Website** — the page in `docs/` (GitHub Pages) links to
-  `releases/latest/download/Transcribe.dmg`
+- **Website** — <https://transcribe.heliconsolutions.net/> is the static site in
+  `site/`, hosted on Cloudflare Pages (project `transcribe-mac`). Its `install.sh`
+  and links point at `releases/latest`, so releases need no site change. After
+  editing `site/`, deploy with:
+  ```bash
+  wrangler pages deploy site --project-name transcribe-mac --branch main
+  ```
+  (`docs/` is an older copy served by GitHub Pages at j3012b.github.io/Transcribe_Mac.)
 - **Install script** — `install.sh`:
   ```bash
   curl -fsSL https://raw.githubusercontent.com/J3012B/Transcribe_Mac/main/install.sh | bash
@@ -154,7 +160,8 @@ branch ▸ `main` / `docs`**. The site then updates on every push.
 | `vendor/whisper/` | Bundled whisper.cpp runtime (`whisper-cli` + dylibs) |
 | `icon/` | Python scripts that regenerate the icon and glyph assets |
 | `install.sh` | `curl \| bash` installer (downloads the latest release DMG) |
-| `docs/` | GitHub Pages landing page |
+| `site/` | Live landing page (Cloudflare Pages, transcribe.heliconsolutions.net) |
+| `docs/` | Older GitHub Pages copy of the landing page + screenshots used by this README |
 | `scripts/make-dmg.sh` | Packages (and optionally signs/notarizes) the DMG |
 | `scripts/bump-version.sh` | Bumps the marketing version in `Info.plist` |
 | `.github/workflows/ci.yml` | Build check on PRs / non-main branches |
