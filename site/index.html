@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transcribe: Free Mac Transcription App (Audio to Text, Offline)</title>
+<meta name="description" content="Free Mac app to transcribe audio and video to text locally with Whisper. Drag, drop, done. Fully offline, no upload, no account. A free MacWhisper alternative.">
+<link rel="canonical" href="https://transcribe.heliconsolutions.net/">
+<link rel="icon" href="icon.png">
+
+<!-- Open Graph / social -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Transcribe">
+<meta property="og:title" content="Transcribe: Free Mac Transcription App (Audio to Text, Offline)">
+<meta property="og:description" content="Free Mac app to transcribe audio and video to text locally with Whisper. Drag, drop, done. Fully offline, no upload. A free MacWhisper alternative.">
+<meta property="og:url" content="https://transcribe.heliconsolutions.net/">
+<meta property="og:image" content="https://transcribe.heliconsolutions.net/screenshots/app.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Transcribe: Free Mac Transcription App (Audio to Text, Offline)">
+<meta name="twitter:description" content="Free Mac app to transcribe audio and video to text locally with Whisper. Fully offline, no upload. A free MacWhisper alternative.">
+<meta name="twitter:image" content="https://transcribe.heliconsolutions.net/screenshots/app.png">
+
+<!-- Structured data: helps Google understand this is a free Mac app -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Transcribe",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "macOS 14+",
+  "description": "Free Mac app to transcribe audio and video to text locally with Whisper. Fully offline, no upload, no account. A free MacWhisper alternative.",
+  "url": "https://transcribe.heliconsolutions.net/",
+  "downloadUrl": "https://transcribe.heliconsolutions.net/",
+  "screenshot": "https://transcribe.heliconsolutions.net/screenshots/app.png",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "isAccessibleForFree": true,
+  "author": { "@type": "Organization", "name": "Helicon Solutions" }
+}
+</script>
+
+<!-- Privacy-friendly analytics by Plausible -->
+<script async src="https://plausible.io/js/pa-nX1MSBtbc4DmmLE4ajGc_.js"></script>
+<script>
+  window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
+  plausible.init()
+</script>
+
+<style>
+  :root{
+    --bg:#ffffff; --bg2:#f5f5f7; --text:#1d1d1f; --text2:#33333a;
+    --line:#d2d2d7; --card:#ffffff; --code-bg:#f5f5f7; --code-text:#1d1d1f;
+    --teal:#14b8a6; --blue:#2563eb;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#000000; --bg2:#0b0b0c; --text:#f5f5f7; --text2:#d6d6db;
+      --line:#2a2a2d; --card:#131316; --code-bg:#161619; --code-text:#f5f5f7;
+    }
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",Arial,sans-serif;
+    background:var(--bg); color:var(--text);
+    -webkit-font-smoothing:antialiased; line-height:1.5;
+  }
+  .wrap{max-width:960px;margin:0 auto;padding:0 24px}
+  a{color:var(--blue);text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  /* Hero */
+  .hero{text-align:center;padding:96px 0 64px}
+  .app-icon{width:132px;height:132px;border-radius:29px;
+    box-shadow:0 18px 50px rgba(37,99,235,.28);}
+  h1{font-size:80px;line-height:1.02;letter-spacing:-.02em;font-weight:700;margin:34px 0 0}
+  .grad{background:linear-gradient(120deg,var(--teal),var(--blue));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{font-size:26px;line-height:1.35;color:var(--text2);margin:20px auto 0;max-width:640px;font-weight:450}
+  .tags{margin-top:20px;font-size:15px;color:var(--text2);font-weight:500}
+  .tags span{white-space:nowrap}
+  .dot{opacity:.5;margin:0 10px}
+
+  /* Install command */
+  .install{margin:44px auto 0;max-width:680px}
+  .cmd{display:flex;align-items:center;gap:12px;background:var(--code-bg);
+    border:1px solid var(--line);border-radius:14px;padding:16px 18px;text-align:left}
+  .cmd code{flex:1;font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:15px;
+    color:var(--code-text);overflow-x:auto;white-space:nowrap}
+  .copy{flex:none;border:0;border-radius:9px;cursor:pointer;font-weight:600;font-size:14px;
+    padding:9px 16px;color:#fff;background:linear-gradient(120deg,var(--teal),var(--blue))}
+  .copy:active{transform:translateY(1px)}
+  .hint{margin-top:12px;font-size:14px;color:var(--text2)}
+  .hint a{font-weight:500}
+  .gh{display:inline-flex;align-items:center;gap:9px;margin-top:22px;
+    padding:11px 20px;border-radius:11px;font-weight:600;font-size:15px;
+    color:var(--text);background:var(--card);border:1px solid var(--line);
+    transition:border-color .15s,transform .05s}
+  .gh:hover{text-decoration:none;border-color:var(--text2)}
+  .gh:active{transform:translateY(1px)}
+  .gh svg{width:20px;height:20px;fill:currentColor}
+
+  /* Features */
+  .features{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:40px 0 8px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:26px}
+  .card .ic{font-size:30px}
+  .card h3{font-size:20px;font-weight:650;margin:14px 0 6px;letter-spacing:-.01em}
+  .card p{font-size:16px;color:var(--text2)}
+
+  /* Section */
+  .sec{padding:56px 0;border-top:1px solid var(--line);margin-top:56px}
+  .sec h2{font-size:34px;font-weight:700;letter-spacing:-.02em;text-align:center}
+  .steps{max-width:620px;margin:28px auto 0}
+  .step{display:flex;gap:16px;padding:14px 0}
+  .step .n{flex:none;width:30px;height:30px;border-radius:50%;font-weight:700;font-size:15px;
+    display:flex;align-items:center;justify-content:center;color:#fff;
+    background:linear-gradient(120deg,var(--teal),var(--blue))}
+  .step p{font-size:17px;color:var(--text)}
+  .step b{font-weight:650}
+  details{max-width:620px;margin:24px auto 0;background:var(--bg2);border:1px solid var(--line);
+    border-radius:14px;padding:4px 20px}
+  summary{cursor:pointer;font-weight:600;padding:16px 0;font-size:16px}
+  details pre{background:var(--code-bg);border:1px solid var(--line);border-radius:10px;
+    padding:16px;overflow-x:auto;font-size:13px;font-family:"SF Mono",ui-monospace,Menlo,monospace;
+    margin:0 0 18px;color:var(--code-text);line-height:1.6}
+
+  /* Screenshots */
+  .shot{display:block;width:100%;height:auto;border-radius:22px;margin:8px auto 0;
+    box-shadow:0 30px 80px rgba(37,99,235,.18)}
+  .shot-cap{text-align:center;color:var(--text2);font-size:15px;margin-top:16px}
+  .sec .lead{font-size:17px;color:var(--text2);max-width:620px;margin:18px auto 28px;text-align:center}
+  .sec .shot{max-width:860px}
+
+  /* Support */
+  .support{text-align:center}
+  .support p{font-size:17px;color:var(--text2);max-width:560px;margin:18px auto 26px}
+  .donate{display:inline-flex;align-items:center;gap:9px;padding:13px 26px;border-radius:12px;
+    font-weight:650;font-size:16px;color:#fff;background:#e5484d;
+    box-shadow:0 10px 28px rgba(229,72,77,.28);transition:transform .05s,background .15s}
+  .donate:hover{text-decoration:none;background:#d93d42}
+  .donate:active{transform:translateY(1px)}
+
+  footer{text-align:center;padding:48px 0 64px;color:var(--text2);font-size:14px;border-top:1px solid var(--line);margin-top:40px}
+
+  @media (max-width:720px){
+    h1{font-size:52px}.sub{font-size:21px}.features{grid-template-columns:1fr}
+    .hero{padding:64px 0 48px}.cmd code{font-size:13px}
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <img class="app-icon" src="icon.png" alt="Transcribe app icon">
+    <h1>Transcribe</h1>
+    <p class="sub">The free Mac transcription app. Turn any audio or video into text, <span class="grad">entirely on your Mac.</span></p>
+    <p class="tags">
+      <span>Private and offline</span><span class="dot">·</span>
+      <span>Apple Silicon</span><span class="dot">·</span>
+      <span>macOS 14+</span><span class="dot">·</span>
+      <span>Free</span>
+    </p>
+
+    <div class="install">
+      <div class="cmd">
+        <code id="cmd">curl -fsSL https://transcribe.heliconsolutions.net/install.sh | bash</code>
+        <button class="copy" id="copyBtn" onclick="copyCmd()">Copy</button>
+      </div>
+      <p class="hint">Paste into Terminal and press Return. Rather read it first? <a href="install.sh">View the script</a>.</p>
+      <a class="gh" href="https://github.com/J3012B/Transcribe_Mac" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+        View on GitHub
+      </a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <figure>
+    <img class="shot" src="screenshots/app.png" width="1578" height="1098"
+         alt="Transcribe on a Mac: drop zone and transcription history on the left, the full transcript of a meeting recording on the right">
+    <figcaption class="shot-cap">Drop a file, get the text. Every transcript stays in your history, on your Mac.</figcaption>
+  </figure>
+
+  <section class="features">
+    <div class="card">
+      <div class="ic">🔒</div>
+      <h3>Private by design</h3>
+      <p>Your audio never leaves the Mac. No cloud, no upload, no account. Everything runs locally.</p>
+    </div>
+    <div class="card">
+      <div class="ic">⚡</div>
+      <h3>Neural Engine fast</h3>
+      <p>A minute of audio in a few seconds, using the Apple Neural Engine and GPU through Whisper.</p>
+    </div>
+    <div class="card">
+      <div class="ic">🎙️</div>
+      <h3>Drag, drop, done</h3>
+      <p>Drop any audio or video file (m4a, mp3, wav, ogg, voice memos, mp4) and get clean text, a copy button, and a searchable history.</p>
+    </div>
+    <div class="card">
+      <div class="ic">💸</div>
+      <h3>Yours to keep</h3>
+      <p>No subscription, no trial. Install it once and it keeps working, on your machine.</p>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2>Timestamped transcripts from a link</h2>
+    <p class="lead">Paste a YouTube (or other video) URL and get a transcript with timestamps on every line.
+      Handy for lectures, talks and interviews. The audio is fetched, then transcribed locally like everything else.</p>
+    <img class="shot" src="screenshots/timestamps.png" width="1578" height="1098" loading="lazy"
+         alt="A lecture transcribed from a YouTube link, with a timestamp at the start of every line">
+  </section>
+
+  <section class="sec">
+    <h2>How to install</h2>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><p><b>Copy the command</b> above and paste it into Terminal.</p></div>
+      <div class="step"><div class="n">2</div><p><b>Press Return.</b> It installs the latest version into your Applications folder and opens it. The app lets you know when an update is out.</p></div>
+      <div class="step"><div class="n">3</div><p><b>First launch downloads the speech model</b> once, about 650 MB, then it is fully offline.</p></div>
+    </div>
+
+    <details>
+      <summary>What does the command actually do?</summary>
+      <pre>#  Downloads the latest release from GitHub, installs it, and clears
+#  the download quarantine so the bundled engine can run. Nothing hidden.
+
+curl  https://github.com/J3012B/Transcribe_Mac/releases/latest/download/Transcribe.dmg
+hdiutil attach  Transcribe.dmg
+cp -R  Transcribe.app  /Applications/
+xattr -dr com.apple.quarantine  /Applications/Transcribe.app
+open  /Applications/Transcribe.app</pre>
+    </details>
+  </section>
+
+  <section class="sec">
+    <h2>Why Terminal, not a double-click?</h2>
+    <div class="steps">
+      <p style="font-size:17px;color:var(--text2)">
+        This build is not yet notarized by Apple, so a normal download would be blocked by Gatekeeper.
+        Installing through the command above avoids that, and it is fully transparent: you can read every
+        line of the script before running it. A signed, double-click version is on the way.
+      </p>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2>A free alternative to MacWhisper and Superwhisper</h2>
+    <div class="steps">
+      <p style="font-size:17px;color:var(--text2)">
+        Transcribe runs the same Whisper speech model as the popular paid Mac apps, but it is
+        free and open source, with no subscription and no trial. Everything stays on your machine.
+        Drop in an interview, a voice memo, a podcast, or a video and get accurate text back in
+        seconds. It is a simple, private, local Whisper app for macOS.
+        See the full source on <a href="https://github.com/J3012B/Transcribe_Mac">GitHub</a>.
+      </p>
+    </div>
+  </section>
+
+  <section class="sec support" id="support">
+    <h2>Support Transcribe</h2>
+    <p>Transcribe is free and open source, with no ads, accounts or tracking, and it will stay that way.
+      If it saves you time, a small contribution helps keep it maintained.</p>
+    <a class="donate" href="https://donate.stripe.com/14AdR8fWj0ts8CUeoGd3i00"
+       onclick="window.plausible && plausible('Donate click')">♥ Donate</a>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">Transcribe · Free and open source · Runs on-device with Whisper · Built for Apple Silicon · <a href="https://github.com/J3012B/Transcribe_Mac">GitHub</a> · <a href="#support">Donate</a></div>
+</footer>
+
+<script>
+  function copyCmd(){
+    var t = document.getElementById('cmd').textContent;
+    navigator.clipboard.writeText(t).then(function(){
+      var b = document.getElementById('copyBtn');
+      b.textContent = 'Copied';
+      setTimeout(function(){ b.textContent = 'Copy'; }, 1600);
+    });
+  }
+</script>
+</body>
+</html>
